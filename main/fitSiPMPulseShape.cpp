@@ -26,6 +26,7 @@
 #include <TMinuit.h>
 #include "TProfile.h"
 #include "TLatex.h"
+#include "TVirtualFitter.h"
 
 #include <iostream>
 #include <iomanip>
@@ -41,7 +42,9 @@
 
 int nRuns = 20;
 
-TMinuit* gMinuit;
+TVirtualFitter* fitter;
+std::map<int,int> parIndex;
+std::vector<double> fitPars;
 
 const float OV = 1.5;   // volt
 
@@ -58,10 +61,6 @@ TH1D** hBand = new TH1D*[nRuns];
 TH1D** hSiPM = new TH1D*[nRuns];
 TH1D** hOuTot = new TH1D*[nRuns];
 
-double* pars_val;
-double* pars_err;
-double* pars_low;
-double* pars_hig;
 
 
 
@@ -97,11 +96,24 @@ void myLoadData(std::vector<int> runs, const std::string& inFolder)
 void myInSignal(const int& iRun, double* par)
 {
   SiPMParams* sipmPars = &(SiPMParamsVec.at(iRun));
-  double amp = par[0+3*iRun];
-  double x0  = par[1+3*iRun];
-  double Rq  = par[2+3*iRun];
-  double BW  = par[3*nRuns];
+
+  double amp = 25.;
+  double t0 = 10.;
+  double Rq = (*sipmPars).Rq;
+  double BW = 50.;
+    
+  if( parIndex[0+4*iRun] >= 0 ) amp = par[parIndex[0+4*iRun]];
+  if( parIndex[1+4*iRun] >= 0 )  t0 = par[parIndex[1+4*iRun]];
+  if( parIndex[2+4*iRun] >= 0 )  Rq = par[parIndex[2+4*iRun]];
+  if( parIndex[3+4*iRun] >= 0 )  BW = par[parIndex[3+4*iRun]];
+
   (*sipmPars).Rq = Rq;
+  
+  fitPars[0+4*iRun] = amp;
+  fitPars[1+4*iRun] = t0;
+  fitPars[2+4*iRun] = Rq;
+  fitPars[3+4*iRun] = BW;
+  
   
   // bandwidth low-pass filter
   double tau_band = 0.35/(BW*2.2)*1e3; // nanosenconds (BW is in GHz)
@@ -111,7 +123,7 @@ void myInSignal(const int& iRun, double* par)
   { 
     double tt = (double)ipt * (tmax/npt);
     
-    hSiPM[iRun] -> SetBinContent(ipt+1, (*sipmPars).RL*SiPMPulseShape(tt,*sipmPars,OV,amp,x0));
+    hSiPM[iRun] -> SetBinContent(ipt+1, (*sipmPars).RL*SiPMPulseShape(tt,*sipmPars,OV,amp,t0));
     hBand[iRun] -> SetBinContent(ipt+1, funcLP(tt,tau_band));
   }
   
@@ -125,31 +137,28 @@ void myInSignal(const int& iRun, double* par)
 // Draw
 void myDrawFit()
 {
-  double BW, BWerr;
-  gMinuit -> GetParameter(3*nRuns,BW,BWerr);
-  
-  for(int d = 0; d < nRuns; d++)
+  for(int iRun = 0; iRun < nRuns; ++iRun)
   {
-    SiPMParams sipmPars = SiPMParamsVec.at(d);
+    SiPMParams sipmPars = SiPMParamsVec.at(iRun);
     
     // find maximum for plot range
     double Amax = 0.;
     double xx, yy;
-    for(int iPoint = 0; iPoint < g_data[d]->GetN(); ++iPoint)
+    for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); ++iPoint)
     {
-      g_data[d] -> GetPoint(iPoint,xx,yy);
+      g_data[iRun] -> GetPoint(iPoint,xx,yy);
       if( Amax <  yy ) 
         Amax = yy;
     }
-    for(int iBin = 1; iBin <= hOuTot[d]->GetNbinsX(); ++iBin)
+    for(int iBin = 1; iBin <= hOuTot[iRun]->GetNbinsX(); ++iBin)
     {
-      if( Amax <  hOuTot[d]->GetBinContent(iBin) ) 
-        Amax = hOuTot[d]->GetBinContent(iBin);
+      if( Amax <  hOuTot[iRun]->GetBinContent(iBin) ) 
+        Amax = hOuTot[iRun]->GetBinContent(iBin);
     } 
     
     
     // Draw
-    TCanvas* c1 = new TCanvas(Form("c%d", d),Form("c%d", d),1800.,750.); 
+    TCanvas* c1 = new TCanvas(Form("c%d", iRun),Form("c%d", iRun),1800.,750.); 
     c1->Divide(2,1);
     c1 -> cd(1);
     gPad->SetLeftMargin(0.2); gPad->SetRightMargin(0.1);
@@ -164,18 +173,18 @@ void myDrawFit()
     hFrame -> GetXaxis()->SetTitleSize(0.050); 
     hFrame -> GetYaxis()->SetTitleSize(0.050); 
     
-    g_data[d] -> SetMarkerSize(0.5);
-    g_data[d] -> SetMarkerStyle(8);
-    g_data[d] -> Draw("P, same");
+    g_data[iRun] -> SetMarkerSize(0.5);
+    g_data[iRun] -> SetMarkerStyle(8);
+    g_data[iRun] -> Draw("P, same");
     
-    hOuTot[d] ->SetLineColor(kGreen+1); hOuTot[d] ->SetLineWidth(2);
-    hOuTot[d] ->Draw("L,same");
+    hOuTot[iRun] ->SetLineColor(kGreen+1); hOuTot[iRun] ->SetLineWidth(2);
+    hOuTot[iRun] ->Draw("L,same");
     
     TLegend* legend = new TLegend(0.40,0.75,0.70,0.85);
     legend->SetBorderSize(0); 
     legend->SetTextSize(0.04);
-    legend->AddEntry(hOuTot[d],"Complete model","L");
-    legend->AddEntry(g_data[d],"Data","LP"); 
+    legend->AddEntry(hOuTot[iRun],"Complete model","L");
+    legend->AddEntry(g_data[iRun],"Data","LP"); 
     legend->Draw("same");
     
     TLatex* latex = new TLatex(0.40,0.60,Form("V_{OV} = %.1f V", OV));
@@ -192,14 +201,14 @@ void myDrawFit()
     latex1 -> SetTextColor(kBlack);
     latex1 -> Draw("same");
     
-    TLatex* latex2 = new TLatex(0.40,0.50,Form("C_{d} = %.1f fF, C_{q} = %.1f fF, R_{q} = %.0f k#Omega", sipmPars.Cd*1e15,sipmPars.Cq*1e15, sipmPars.Rq*1e-3));
+    TLatex* latex2 = new TLatex(0.40,0.50,Form("C_{d} = %.1f fF, C_{q} = %.1f fF, R_{q} = %.0f k#Omega", sipmPars.Cd*1e15,sipmPars.Cq*1e15, fitPars[2+4*iRun]*1e-3));
     latex2 -> SetNDC();
     latex2 -> SetTextFont(42);
     latex2 -> SetTextSize(0.04);
     latex2 -> SetTextColor(kBlack);
     latex2 -> Draw("same");
     
-    TLatex* latex3 = new TLatex(0.40,0.40,Form("BW = %.0f MHz", BW));
+    TLatex* latex3 = new TLatex(0.40,0.40,Form("BW = %.0f MHz", fitPars[3+4*iRun]));
     latex3 -> SetNDC();
     latex3 -> SetTextFont(42);
     latex3 -> SetTextSize(0.04);
@@ -211,19 +220,20 @@ void myDrawFit()
     gPad->SetTicks();
     gPad->SetLogy(); 
     hFrame ->Draw(); 
-    hFrame -> SetMinimum(0.003);
-    g_data[d] -> Draw("P,same");
-    hOuTot[d] ->Draw("L,same");
+    hFrame -> SetMinimum(0.002);
+    hFrame -> GetXaxis() -> SetRangeUser(0.,180.);
+    g_data[iRun] -> Draw("P,same");
+    hOuTot[iRun] ->Draw("L,same");
     gPad->Update();
     c1->Update();
     
     c1->Print(Form("c_%s.png",sipmPars.label.c_str()));
     
-    //outfile[d] = new TFile(Form("out.root"), "RECREATE");
-    //outfile[d] -> cd();
+    //outfile[iRun] = new TFile(Form("out.root"), "RECREATE");
+    //outfile[iRun] -> cd();
     
-    //outfile[d] -> WriteObject(g_data[d], Form("data_RL_%.0f_RF_%.0f_SiPM_%s_approximated_avg", RL[d], RF[d]*1e-3,tySiPM[d].c_str()));
-    //outfile[d] -> WriteObject(fTot[d], Form("fft_function_RL_%.0f_RF_%.0f_SiPM_%s_approximated_avg", RL[d], RF[d]*1e-3,tySiPM[d].c_str()));
+    //outfile[iRun] -> WriteObject(g_data[iRun], Form("data_RL_%.0f_RF_%.0f_SiPM_%s_approximated_avg", RL[d], RF[d]*1e-3,tySiPM[d].c_str()));
+    //outfile[iRun] -> WriteObject(fTot[d], Form("fft_function_RL_%.0f_RF_%.0f_SiPM_%s_approximated_avg", RL[d], RF[d]*1e-3,tySiPM[d].c_str()));
     
   }
   
@@ -246,13 +256,32 @@ void fcn(int& npar, double* gin, double& f, double* par, int iflag)
     
     double x1 = hOuTot[iRun]->GetXaxis()->GetXmin();
     double x2 = hOuTot[iRun]->GetXaxis()->GetXmax();
-    x1 = 20.; 
+    x1 = 10.; 
     x2 = 180.;
-    
+
     double xx, yy, ey;
+    for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); ++iPoint)
+    {
+      g_data[iRun] -> GetPoint(iPoint,xx,yy);
+      if( yy > 0.002 )
+      {
+        x1 = xx;
+        break;
+      }
+    }
+    for(int iPoint = g_data[iRun]->GetN()-1; iPoint >= 0; --iPoint)
+    {
+      g_data[iRun] -> GetPoint(iPoint,xx,yy);
+      if( yy > 0.002 )
+      {
+        x2 = xx;
+        break;
+      }
+    }
+    
     for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); iPoint++)
     {
-      g_data[iRun] -> GetPoint(iPoint,xx,yy); 
+      g_data[iRun] -> GetPoint(iPoint,xx,yy);
       ey = g_data[iRun]->GetErrorY(iPoint);
       if( xx > x1 && xx < x2)
       { 
@@ -261,11 +290,6 @@ void fcn(int& npar, double* gin, double& f, double* par, int iflag)
         //std::cout << "iPoint: " << iPoint << "   xx: " << xx << "  yy: " << yy << "   func: " << hOuTot[iRun]->Interpolate(xx) << "   delta: " << delta << "   chisq: " << chisq << std::endl;
       }
     }
-    
-    // std::cout << "chisq: " << chisq;
-    // for(int ipar = 0; ipar < npar; ++ipar)
-    //   std::cout << "   ipar: " << ipar << " val: " << par[ipar];
-    // std::cout << std::endl;
   }
   
   f = chisq;
@@ -274,78 +298,45 @@ void fcn(int& npar, double* gin, double& f, double* par, int iflag)
 
 
 void myFitPulse(const bool& minimize,
-                const bool& fixAmp, const bool& fixT0, const bool& fixRq,
-                const bool& fixBW)
+                const int& nPars_amp, const int& nPars_t0, const int& nPars_Rq, const int& nPars_BW)
 {
+  int nPars = nPars_amp+nPars_t0+nPars_Rq+nPars_BW;
   // Define fit model
-  int nPars = 3*nRuns+1;
-  gMinuit = new TMinuit(nPars);
-  gMinuit->SetFCN(fcn);
+  TVirtualFitter::SetDefaultFitter("Minuit");
+  fitter = TVirtualFitter::Fitter(NULL,nPars);
+  fitter->SetFCN(fcn);
 
-  double arglist[10]; int ierflg = 0;
-
+  double arglist[100];
+  
+  // SET PRINT LEVEL
+  arglist[0] = 2;
+  fitter -> ExecuteCommand("SET PRINT",arglist,1);
   
   // ERROR CHISQUARE
   arglist[0] = 1;
-  gMinuit -> mnexcm("SET ERR", arglist, 1, ierflg);
-  
+  fitter -> ExecuteCommand("SET ERR", arglist,1);
   
   // INITIALIZE PARAMETERS
-  double vstart[nPars]; 
-  double vstep[nPars]; 
-  for(int iRun = 0; iRun < nRuns; ++iRun)
-  {
-    SiPMParams sipmPars = SiPMParamsVec.at(iRun);
-    
-    // amp
-    vstart[0+3*iRun] = 2500.;
-    vstep[0+3*iRun] = 100.;
-    gMinuit -> mnparm(0+3*iRun, Form("Amp"), vstart[0+3*iRun], vstep[0+3*iRun], 100.,100000., ierflg);
-    if( fixAmp ) gMinuit->FixParameter(0+3*iRun);
-    
-    // t0
-    vstart[1+3*iRun] = 20.;
-    vstep[1+3*iRun] = 1.;
-    gMinuit->mnparm(1+3*iRun, Form("t0"), vstart[1+3*iRun], vstep[1+3*iRun], 0. ,100.,ierflg);
-    if( fixT0 ) gMinuit->FixParameter(1+3*iRun);
-    
-    // Rq
-    vstart[2+3*iRun] = sipmPars.Rq;
-    vstep[2+3*iRun] = 10e3;
-    gMinuit->mnparm(2+3*iRun, Form("Rq"), vstart[2+3*iRun], vstep[2+3*iRun], 0. ,1000e3,ierflg);
-    if( fixRq ) gMinuit->FixParameter(2+3*iRun);
-  }
+  for(int iPar = 0; iPar < nPars_amp; ++iPar)
+    fitter -> SetParameter(iPar, Form("Amp"), 25., 1., 1.,100.);
+  for(int iPar = 0; iPar < nPars_t0; ++iPar)
+    fitter -> SetParameter(nPars_amp+iPar, Form("t0"), 20., 0.5, 10. ,30.);
+  for(int iPar = 0; iPar < nPars_Rq; ++iPar)
+    fitter -> SetParameter(nPars_amp+nPars_t0+iPar, Form("Rq"), 450e3, 10e3, 0. ,1000e3);
+  for(int iPar = 0; iPar < nPars_BW; ++iPar)
+    fitter -> SetParameter(nPars_amp+nPars_t0+nPars_Rq+iPar, "BW", 49., 2., 0., 200.);
   
-  vstart[3*nRuns] = 50.;
-  vstep[3*nRuns] = 10.0;
-  gMinuit->mnparm(3*nRuns, "BW", vstart[3*nRuns], vstep[3*nRuns], 0., 500., ierflg);
-  if( fixBW ) gMinuit->FixParameter(3*nRuns);
-  
-  
-  // initialize 
+  // INITIALIZE FCN
   arglist[0] = 1; 
-  std::cout << "CALL FCN" << std::endl;
-  gMinuit->mnexcm("CALL FCN",arglist ,1,ierflg);
-
+  fitter -> ExecuteCommand("CALL FCN", arglist, 1);
   
-  // Now ready for minimization step
+  // MINIMIZATION
   if( minimize )
   {
-    arglist[0] = 500; arglist[1] = 1.; 
-    gMinuit->mnexcm("MIN", arglist ,2,ierflg);   
+    arglist[0] = 5000; // number of function calls
+    arglist[1] = 0.05; // tolerance
+    fitter -> ExecuteCommand("MINIMIZE",arglist,2);
   }
-  
-  
-  // // Read parameters
-  // pars_val = new double(nPars);
-  // pars_err = new double(nPars);
-  // pars_low = new double(nPars);
-  // pars_hig = new double(nPars);
-  // TString pname;
-  // int iuint; 
-  // for(int iPar = 0; iPar < 3; ++iPar)
-  //   gMinuit->mnpout(iPar, pname, pars_val[iPar], pars_err[iPar], pars_low[iPar], pars_hig[iPar], iuint);
-  
   
   return;
 }
@@ -363,20 +354,49 @@ int main(int argc, char** argv)
   opts.ParseConfigFile(argv[1]);
   
   int doMinimization = opts.GetOpt<int>("Input.doMinimization");
-  int fixAmp = opts.GetOpt<int>("Input.fixAmp");
-  int fixT0 = opts.GetOpt<int>("Input.fixT0");
-  int fixRq = opts.GetOpt<int>("Input.fixRq");
-  int fixBW = opts.GetOpt<int>("Input.fixBW");
   
   std::string dataFolder = opts.GetOpt<std::string>("Input.dataFolder");
+
   
   // get the SiPM and run list
   GetSiPMParsFromCfg(argv[1],SiPMParamsVec,runsVec);
+  nRuns = runsVec.size();
+  
 
+  // get the fit parameters
+  fitPars.reserve(4*nRuns);
+  std::vector<int> params_amp;
+  std::vector<int> params_t0;
+  std::vector<int> params_Rq;
+  std::vector<int> params_BW;
+  std::vector<std::string> SiPMList = opts.GetOpt<std::vector<std::string> >("Input.SiPMList");
+  for(auto iSiPM : SiPMList)
+  {
+    int param_amp = opts.GetOpt<int>(Form("%s.paramAmp",iSiPM.c_str())); params_amp.push_back( param_amp );
+    int param_t0  = opts.GetOpt<int>(Form("%s.paramT0",iSiPM.c_str()));  params_t0.push_back( param_t0 );
+    int param_Rq  = opts.GetOpt<int>(Form("%s.paramRq",iSiPM.c_str()));  params_Rq.push_back( param_Rq );
+    int param_BW  = opts.GetOpt<int>(Form("%s.paramBW",iSiPM.c_str()));  params_BW.push_back( param_BW );
+  }
+  int nPars_amp = CountUnique(params_amp);
+  int nPars_t0 = CountUnique(params_t0);
+  int nPars_Rq = CountUnique(params_Rq);
+  int nPars_BW = CountUnique(params_BW);
+  std::cout << "nPars_amp: " << nPars_amp << std::endl;
+  std::cout << "nPars_t0: " << nPars_t0 << std::endl;
+  std::cout << "nPars_Rq: " << nPars_Rq << std::endl;
+  std::cout << "nPars_BW: " << nPars_BW << std::endl;
+  for(unsigned int iRun = 0; iRun < nRuns; ++iRun)
+  {
+    if( params_amp.at(iRun) >= 0 ) parIndex[0+4*iRun] = params_amp.at(iRun);                                  else parIndex[0+4*iRun] = -1;
+    if( params_t0.at(iRun)  >= 0 ) parIndex[1+4*iRun] = nPars_amp + params_t0.at(iRun);                       else parIndex[1+4*iRun] = -1;
+    if( params_Rq.at(iRun)  >= 0 ) parIndex[2+4*iRun] = nPars_amp + nPars_t0 + params_Rq.at(iRun);            else parIndex[2+4*iRun] = -1;
+    if( params_BW.at(iRun)  >= 0 ) parIndex[3+4*iRun] = nPars_amp + nPars_t0 + nPars_Rq + params_BW.at(iRun); else parIndex[3+4*iRun] = -1;
+    std::cout << "iRun: " << iRun << "  parIndex[0] = " << parIndex[0+4*iRun] << "   parIndex[1] = " << parIndex[1+4*iRun] << "   parIndex[2] = " << parIndex[2+4*iRun] << "   parIndex[3] = " << parIndex[3+4*iRun] << std::endl;
+  }
+  
   
   //------------------
   // define histograms
-  nRuns = runsVec.size();
   for(unsigned int iRun = 0; iRun < nRuns; ++iRun)
   {
     hSiPM[iRun]  = new TH1D(Form("hSiPM_%d",iRun), "",npt,0,tmax); // SiPM pulse
@@ -390,8 +410,7 @@ int main(int argc, char** argv)
   myLoadData(runsVec,dataFolder); // fill graphs from files
   
   myFitPulse(bool(doMinimization),
-             bool(fixAmp), bool(fixT0), bool(fixRq),
-             bool(fixBW));
+             nPars_amp, nPars_t0, nPars_Rq, nPars_BW);
   
   myDrawFit(); // draw the fit result
   

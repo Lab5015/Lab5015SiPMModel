@@ -2,6 +2,23 @@
 
 
 
+int CountUnique(const std::vector<int>& v)
+{
+  std::vector<int> v_sorted(v);
+  std::sort(v_sorted.begin(),v_sorted.end());
+
+  auto last = std::unique(v_sorted.begin(),v_sorted.end());
+  v_sorted.erase(last,v_sorted.end());
+
+  int count = 0;
+  for(auto val : v_sorted)
+    if( val >= 0 ) count += 1;
+
+  return count;
+}
+
+
+
 void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<int>& runs)
 {  
   // parse the config file
@@ -15,6 +32,7 @@ void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<int
     std::cout << iSiPM << std::endl;
 
     SiPMParams pars;
+    pars.Npe   = opts.GetOpt<float>(Form("%s.Npe",iSiPM.c_str()));
     pars.Rq    = opts.GetOpt<float>(Form("%s.Rq",iSiPM.c_str()));
     pars.Cq    = opts.GetOpt<float>(Form("%s.Cq",iSiPM.c_str()));
     pars.Rd    = opts.GetOpt<float>(Form("%s.Rd",iSiPM.c_str()));
@@ -59,6 +77,8 @@ double funcLP(const double& xx, const double& tau)
 // **************************** **************************** ****************************
 double SiPMPulseShape(const double& xx, const SiPMParams& sipmPars, const double& OV, const double& amp, const double& x0)
 {
+  double Npe = sipmPars.Npe;
+  
   double Ge = (OV+0.25) * (sipmPars.Cq+sipmPars.Cd);
   
   double tmr = sipmPars.Rd * (sipmPars.Cq+sipmPars.Cd) * 1e9; // rise time, ns
@@ -78,6 +98,6 @@ double SiPMPulseShape(const double& xx, const SiPMParams& sipmPars, const double
 
   double IL = 1E-5;
   if( xx >= x0 ) 
-    IL = amp * Ge * 1e9 * ( a1*exp(-(xx-x0)/tcd1) + a2*exp(-(xx-x0)/tcd2) + a3*exp(-(xx-x0)/tmd) + a4*exp(-(xx-x0)/tmr));
+    IL = Npe * amp * Ge * 1e9 * ( a1*exp(-(xx-x0)/tcd1) + a2*exp(-(xx-x0)/tcd2) + a3*exp(-(xx-x0)/tmd) + a4*exp(-(xx-x0)/tmr));
   return IL;
 }

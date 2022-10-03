@@ -12,6 +12,7 @@
 
 // SiPM parameters
 struct SiPMParams {
+  float Npe;
   float Rq;
   float Cq;
   float Rd;
@@ -22,6 +23,8 @@ struct SiPMParams {
   std::string title;
   std::string label;
 };
+
+int CountUnique(const std::vector<int>& v);
 
 void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<int>& runs);
   
