@@ -12,6 +12,7 @@
 
 // SiPM parameters
 struct SiPMParams {
+  float OV;
   float Npe;
   float Rq;
   float Cq;
@@ -27,9 +28,11 @@ struct SiPMParams {
 int CountUnique(const std::vector<int>& v);
 
 void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<int>& runs);
-  
+void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
+                       int& nPars_amp, int& nPars_t0, int& nPars_Rq, int& nPars_BW);
+
 double funcLP(const double& xx, const double& tau);
 
-double SiPMPulseShape(const double& x, const SiPMParams& sipmPars, const double& OV, const double& amp, const double& x0);
+double SiPMPulseShape(const double& x, const SiPMParams& sipmPars, const double& amp, const double& x0);
 
 #endif

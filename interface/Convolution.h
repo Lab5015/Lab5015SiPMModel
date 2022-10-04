@@ -9,7 +9,7 @@
 
 
 
-void hConvol(TH1D* hFun1, TH1D* hFun2, TH1D* hFFT, int iflag=0);
+void hConvol(TH1D* hFun1, TH1D* hFun2, TH1D* hFFT);
 void hConvolBode(TH1D* hFun1, TProfile* hFun2_RE, TProfile* hFun2_IM, TH1D* hFFT, int iflag=0);
 void hConvolBode(TH1D* hFun1, TF1* fBandwidth, TH1D* hFFT, int iflag=0);
 

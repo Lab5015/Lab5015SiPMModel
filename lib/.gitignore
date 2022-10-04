@@ -33,3 +33,7 @@
 
 # ROOT files
 °.root
+
+# Only in this folder
+*.cc
+*.pcm

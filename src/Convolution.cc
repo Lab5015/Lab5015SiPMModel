@@ -19,70 +19,50 @@
 //        
 // **********************************************************
 
-void hConvol(TH1D* hFun1, TH1D* hFun2, TH1D* hFFT, int iflag)
+void hConvol(TH1D* h1, TH1D* h2, TH1D* hFFT)
 {
   // number of samples and sampling frequency
-  int n = hFun1->GetNbinsX(); 
-  double freq = 1./hFun1->GetBinWidth(1);
+  int n = h1 -> GetNbinsX(); 
+  double freq = 1./h1->GetBinWidth(1);
 
-  // auxiliary histos
-  TH1 *hP = 0; TH1 *hS = 0; 
-
-  // Do the DFT of hFun1 
   TVirtualFFT::SetTransform(0);
-  hP = hFun1->FFT(hP,"MAG1"); 
-  TVirtualFFT *ffP = TVirtualFFT::GetCurrentTransform();
-  // Get complex coefficients 
-  Double_t *reFun1 = new Double_t[n];
-  Double_t *imFun1 = new Double_t[n];
-  ffP->GetPointsComplex(reFun1,imFun1);
 
-  //  Do the DFT of hFun2 
-  hS = hFun2->FFT(hS,"MAG2");
-  TVirtualFFT *ffS = TVirtualFFT::GetCurrentTransform();
+  // Do the DFT of h1 
+  TH1D* h1_freq = new TH1D(Form("%s_DFT_MAG",h1->GetName()),"",n,0.,freq);
+  h1 -> FFT(h1_freq,"MAG R2C M"); 
+  TVirtualFFT* FFT1 = TVirtualFFT::GetCurrentTransform();
   // Get complex coefficients 
-  Double_t *reFun2 = new Double_t[n];
-  Double_t *imFun2 = new Double_t[n];
-  ffS->GetPointsComplex(reFun2,imFun2);
- 
+  double* re1 = new double[n];
+  double* im1 = new double[n];
+  FFT1 -> GetPointsComplex(re1,im1);
+
+  //  Do the DFT of h2 
+  TH1D* h2_freq = new TH1D(Form("%s_DFT_MAG",h2->GetName()),"",n,0.,freq);
+  h2 -> FFT(h2_freq,"MAG R2C M");
+  TVirtualFFT* FFT2 = TVirtualFFT::GetCurrentTransform();
+  // Get complex coefficients 
+  double* re2 = new double[n];
+  double* im2 = new double[n];
+  FFT2 -> GetPointsComplex(re2,im2);
+  
   // COMPLEX PRODUCT - (de)convolution in the conjugate domain - (including the DFT normalization term) 
-  Double_t *re_back = new Double_t[n];
-  Double_t *im_back = new Double_t[n];
-  for (int i=0;i<n;i++){
-  
-      // re_back[i] = reFun1[i] * fBandBode[i]->Eval(freq) / fBandBode[i]->Eval(0.) / n;
-      // im_back[i] = imFun1[i] * fBandBode[i]->Eval(freq) / fBandBode[i]->Eval(0.) / n;
-  
-    if (iflag==0) { 
-      re_back[i] = (reFun1[i]*reFun2[i]-imFun1[i]*imFun2[i]) / n ;
-      im_back[i] = (imFun1[i]*reFun2[i]+reFun1[i]*imFun2[i]) / n ;
-    }
-    else {
-      double norm = reFun2[i]*reFun2[i]+imFun2[i]*imFun2[i]; 
-      re_back[i] = (reFun1[i]*reFun2[i]+imFun1[i]*imFun2[i]) / norm / n ;
-      im_back[i] = (imFun1[i]*reFun2[i]-reFun1[i]*imFun2[i]) / norm / n ;
-    }
+  double* re_back = new double[n];
+  double* im_back = new double[n];
+  for(int i = 0; i < n; ++i)
+  {
+    re_back[i] = (re1[i]*re2[i]-im1[i]*im2[i]) / n ;
+    im_back[i] = (im1[i]*re2[i]+re1[i]*im2[i]) / n ;
   }
-
+  
   //Now let's make a backward transform:
-  TVirtualFFT *fft_back = TVirtualFFT::FFT(1, &n, "C2R M K");
-  fft_back->SetPointsComplex(re_back,im_back);
-  fft_back->Transform();
-  TH1 *hb = 0;
-  // gets the output and normalized to the bin-width (discrete transform norm)
-  hb = TH1::TransformHisto(fft_back,hb,"Re");
-  for (int ipt = 0; ipt<=n; ipt++){
-    if (iflag==0) 
-      hFFT -> SetBinContent(ipt+1, hb->GetBinContent(ipt+1) / freq );
-    else
-      hFFT -> SetBinContent(ipt+1, hb->GetBinContent(ipt+1) * freq );
-
-  }
-
-  delete hP;
-  delete hS;
-  delete hb;
-
+  TVirtualFFT* FFT_back = TVirtualFFT::FFT(1, &n, "C2R M K");
+  FFT_back -> SetPointsComplex(re_back,im_back);
+  FFT_back -> Transform();
+  TH1::TransformHisto(FFT_back,hFFT,"RE");
+  
+  delete h1_freq;
+  delete h2_freq;
+  
   return;
 }
 
@@ -107,13 +87,13 @@ void hConvolBode(TH1D *hFun1, TProfile *hFun2_RE, TProfile *hFun2_IM, TH1D *hFFT
   hP = hFun1->FFT(hP,"MAG1");
   TVirtualFFT *ffP = TVirtualFFT::GetCurrentTransform();
   // Get complex coefficients 
-  Double_t *reFun1 = new Double_t[n];
-  Double_t *imFun1 = new Double_t[n];
+  double *reFun1 = new double[n];
+  double *imFun1 = new double[n];
   ffP->GetPointsComplex(reFun1,imFun1);
   
   //get the real and imaginary part
-  Double_t *reFun2 = new Double_t[n_RE];
-  Double_t *imFun2 = new Double_t[n_IM];
+  double *reFun2 = new double[n_RE];
+  double *imFun2 = new double[n_IM];
   
   for(int ff = 0; ff < n_RE; ff++)
   {
@@ -124,8 +104,8 @@ void hConvolBode(TH1D *hFun1, TProfile *hFun2_RE, TProfile *hFun2_IM, TH1D *hFFT
   }
   
   // COMPLEX PRODUCT - (de)convolution in the conjugate domain - (including the DFT normalization term) 
-  Double_t *re_back = new Double_t[n];
-  Double_t *im_back = new Double_t[n];
+  double *re_back = new double[n];
+  double *im_back = new double[n];
   for (int i=0;i<n;i++){
       double ifreq = i*freq/n;
       int iRE = int(ifreq/(freq_RE));
@@ -181,13 +161,13 @@ void hConvolBode(TH1D* hFun1, TF1* fBandwidth, TH1D* hFFT, int iflag)
   hP = hFun1->FFT(hP,"MAG1"); 
   TVirtualFFT *ffP = TVirtualFFT::GetCurrentTransform();
   // Get complex coefficients 
-  Double_t *reFun1 = new Double_t[n];
-  Double_t *imFun1 = new Double_t[n];
+  double *reFun1 = new double[n];
+  double *imFun1 = new double[n];
   ffP->GetPointsComplex(reFun1,imFun1);
   
   // COMPLEX PRODUCT - (de)convolution in the conjugate domain - (including the DFT normalization term) 
-  Double_t *re_back = new Double_t[n];
-  Double_t *im_back = new Double_t[n];
+  double *re_back = new double[n];
+  double *im_back = new double[n];
   for (int i=0;i<n;i++){
 
     double currFreq = freq / n * i;

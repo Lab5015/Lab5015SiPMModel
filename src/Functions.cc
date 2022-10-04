@@ -26,13 +26,12 @@ void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<int
   opts.ParseConfigFile(cfg);
   
   std::vector<std::string> SiPMList = opts.GetOpt<std::vector<std::string> >("Input.SiPMList");
-
+  
   for(auto iSiPM : SiPMList)
   {
-    std::cout << iSiPM << std::endl;
-
     SiPMParams pars;
     pars.Npe   = opts.GetOpt<float>(Form("%s.Npe",iSiPM.c_str()));
+    pars.OV    = opts.GetOpt<float>(Form("%s.OV",iSiPM.c_str()));
     pars.Rq    = opts.GetOpt<float>(Form("%s.Rq",iSiPM.c_str()));
     pars.Cq    = opts.GetOpt<float>(Form("%s.Cq",iSiPM.c_str()));
     pars.Rd    = opts.GetOpt<float>(Form("%s.Rd",iSiPM.c_str()));
@@ -40,7 +39,7 @@ void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<int
     pars.Nc    = opts.GetOpt<float>(Form("%s.Nc",iSiPM.c_str()));
     pars.Cg    = opts.GetOpt<float>(Form("%s.Cg",iSiPM.c_str()));
     pars.RL    = opts.GetOpt<float>(Form("%s.RL",iSiPM.c_str()));
-    std::vector<std::string> tokens = opts.GetOpt<std::vector<std::string> >(Form("%s.label",iSiPM.c_str()));
+    std::vector<std::string> tokens = opts.GetOpt<std::vector<std::string> >(Form("%s.title",iSiPM.c_str()));
     std::string title = "";
     for(auto token : tokens) title += token + " ";
     pars.title = title;
@@ -51,6 +50,48 @@ void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<int
     runs.push_back(run);
   }
 
+  return;
+}
+
+
+
+void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
+                       int& nPars_amp, int& nPars_t0, int& nPars_Rq, int& nPars_BW)
+{
+  // parse the config file
+  CfgManager opts;
+  opts.ParseConfigFile(cfg);
+  
+  std::vector<int> params_amp;
+  std::vector<int> params_t0;
+  std::vector<int> params_Rq;
+  std::vector<int> params_BW;
+  
+  std::vector<std::string> SiPMList = opts.GetOpt<std::vector<std::string> >("Input.SiPMList");
+  for(auto iSiPM : SiPMList)
+  {
+    int param_amp = opts.GetOpt<int>(Form("%s.paramAmp",iSiPM.c_str())); params_amp.push_back( param_amp );
+    int param_t0  = opts.GetOpt<int>(Form("%s.paramT0",iSiPM.c_str()));  params_t0.push_back( param_t0 );
+    int param_Rq  = opts.GetOpt<int>(Form("%s.paramRq",iSiPM.c_str()));  params_Rq.push_back( param_Rq );
+    int param_BW  = opts.GetOpt<int>(Form("%s.paramBW",iSiPM.c_str()));  params_BW.push_back( param_BW );
+  }
+  
+  nPars_amp = CountUnique(params_amp);
+  nPars_t0 = CountUnique(params_t0);
+  nPars_Rq = CountUnique(params_Rq);
+  nPars_BW = CountUnique(params_BW);
+  
+  std::cout << "-------- FIT PARAMETERS --------" << std::endl;
+  for(unsigned int iRun = 0; iRun < nRuns; ++iRun)
+  {
+    if( params_amp.at(iRun) >= 0 ) parIndex[0+4*iRun] = params_amp.at(iRun);                                  else parIndex[0+4*iRun] = -1;
+    if( params_t0.at(iRun)  >= 0 ) parIndex[1+4*iRun] = nPars_amp + params_t0.at(iRun);                       else parIndex[1+4*iRun] = -1;
+    if( params_Rq.at(iRun)  >= 0 ) parIndex[2+4*iRun] = nPars_amp + nPars_t0 + params_Rq.at(iRun);            else parIndex[2+4*iRun] = -1;
+    if( params_BW.at(iRun)  >= 0 ) parIndex[3+4*iRun] = nPars_amp + nPars_t0 + nPars_Rq + params_BW.at(iRun); else parIndex[3+4*iRun] = -1;
+    std::cout << "iRun: " << iRun << "  parIndex[amp] = " << parIndex[0+4*iRun] << "   parIndex[t0] = " << parIndex[1+4*iRun] << "   parIndex[Rq] = " << parIndex[2+4*iRun] << "   parIndex[BW] = " << parIndex[3+4*iRun] << std::endl;
+  }
+  std::cout << "--------------------------------" << std::endl;
+  
   return;
 }
 
@@ -75,9 +116,9 @@ double funcLP(const double& xx, const double& tau)
 // Exponential solution of the SiPM circuit from Abhinav K. Jha et.al., 2013
 // IL = Ge * ( a1*exp(-xx/tcd1) + a2*exp(-xx/tcd2) + a3*exp(-xx/t_decay) + a4*exp(-xx/t_rise))
 // **************************** **************************** ****************************
-double SiPMPulseShape(const double& xx, const SiPMParams& sipmPars, const double& OV, const double& amp, const double& x0)
+double SiPMPulseShape(const double& xx, const SiPMParams& sipmPars, const double& amp, const double& x0)
 {
-  double Npe = sipmPars.Npe;
+  double OV = sipmPars.OV;
   
   double Ge = (OV+0.25) * (sipmPars.Cq+sipmPars.Cd);
   
@@ -96,8 +137,8 @@ double SiPMPulseShape(const double& xx, const SiPMParams& sipmPars, const double
   double a3 = ( tmd*(tmd - t2) ) / ( (tmd-tcd1)*(tmd-tcd2)*(tmd-tmr) );
   double a4 = ( tmr*(tmr - t2) ) / ( (tmr-tcd1)*(tmr-tmd)*(tmr-tcd2) );
 
-  double IL = 1E-5;
+  double IL = 1E-15;
   if( xx >= x0 ) 
-    IL = Npe * amp * Ge * 1e9 * ( a1*exp(-(xx-x0)/tcd1) + a2*exp(-(xx-x0)/tcd2) + a3*exp(-(xx-x0)/tmd) + a4*exp(-(xx-x0)/tmr));
+    IL = amp * Ge * 1e9 * ( a1*exp(-(xx-x0)/tcd1) + a2*exp(-(xx-x0)/tcd2) + a3*exp(-(xx-x0)/tmd) + a4*exp(-(xx-x0)/tmr));
   return IL;
 }
