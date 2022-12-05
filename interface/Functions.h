@@ -9,6 +9,8 @@
 #include <string>
 
 #include "TString.h"
+#include "TGraphAsymmErrors.h"
+#include "TH1D.h"
 
 // SiPM parameters
 struct SiPMParams {
@@ -21,18 +23,29 @@ struct SiPMParams {
   float Nc;
   float Cg;
   float RL;
+  float RF;
+  float RqErr;
+  float CqErr;
+  float RdErr;
+  float CdErr;
+  float CgErr;
+  float RLErr;
+  float RFErr;
   std::string title;
   std::string label;
 };
 
 int CountUnique(const std::vector<int>& v);
 
-void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<int>& runs);
+std::map<int,int> RemapPars(const std::vector<int>& params);
+
+void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<std::string>* runs = NULL);
 void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
-                       int& nPars_amp, int& nPars_t0, int& nPars_Rq, int& nPars_BW);
+                       int& nPars_amp, int& nPars_t0, int& nPars_Rq, int& nPars_Cd, int& nPars_BW, int& nPars_L);
 
 double funcLP(const double& xx, const double& tau);
+double funcScint(const double& xx, const double& tau_r, const double& tau_d);
 
-double SiPMPulseShape(const double& x, const SiPMParams& sipmPars, const double& amp, const double& x0);
+double SiPMPulseShape(const double& x, const SiPMParams& sipmPars, const double& amp, const double& x0, const int& whichComponent = -1);
 
 #endif
