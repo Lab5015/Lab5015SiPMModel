@@ -19,7 +19,7 @@
 //        
 // **********************************************************
 
-void hConvol(TH1D* h1, TH1D* h2, TH1D* hFFT)
+void hConvol(TH1D* h1, TH1D* h2, TH1D* hFFT, TFile* outfile)
 {
   // number of samples and sampling frequency
   int n = h1 -> GetNbinsX(); 
@@ -44,6 +44,13 @@ void hConvol(TH1D* h1, TH1D* h2, TH1D* hFFT)
   double* re2 = new double[n];
   double* im2 = new double[n];
   FFT2 -> GetPointsComplex(re2,im2);
+  
+  if( outfile )
+    {
+      outfile -> cd();
+      h1_freq -> Write();
+      h2_freq -> Write();
+    }
   
   // COMPLEX PRODUCT - (de)convolution in the conjugate domain - (including the DFT normalization term) 
   double* re_back = new double[n];

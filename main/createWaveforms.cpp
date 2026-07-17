@@ -1,0 +1,270 @@
+#include "CfgManager/interface/CfgManager.h"
+#include "CfgManager/interface/CfgManagerT.h"
+
+#include "interface/Convolution.h"
+#include "interface/Functions.h"
+
+#include <TROOT.h>
+#include <TMath.h>
+#include <TCanvas.h>
+#include <TH1F.h>
+#include <TF1.h>
+#include <TMath.h>
+#include <TLegend.h>
+#include <TFile.h>
+#include <TLine.h>
+#include <TBox.h>
+#include <TLine.h>
+#include <TGraphErrors.h>
+#include <TGraph.h>
+#include <TH1D.h>
+#include <TVirtualFFT.h>
+#include <TText.h>
+#include <TMinuit.h>
+#include "TProfile.h"
+#include "TLatex.h"
+#include "TVirtualFitter.h"
+
+#include <iostream>
+#include <iomanip>
+#include <string>
+#include <cstdlib>
+#include <sstream>
+#include <ctime>
+#include <map>
+#include <algorithm>
+#include <math.h>
+#include <vector>
+#include <fstream>
+
+
+// Define global variables
+std::vector<SiPMParams> SiPMParamsVec;
+std::vector<std::string> runsVec;
+
+// Define time axis and binning
+const int npt     = int(pow(2,13));
+const double tmax = 409.6;
+const double freq = npt/tmax;
+
+// TGraphs and TProfile for data
+TH1D* hSiPM;
+TH1D* hLYSO;
+TH1D* hInTot;
+TH1D* hOuTot;;
+TH1D* hLowP;
+TH1D* hHigP;
+TH1D* hHigP2;
+TH1D* hDisc;
+TH1D* hDelP;
+TH1D* hNorm;
+
+double scintFunc(double* x, double* par)
+{
+  double xx = x[0];
+  double tau_r = par[0];
+  double tau_d = par[1];
+  double ff = ( exp(-1.*xx/tau_d) - exp(-1.*xx/tau_r) ) / (tau_d-tau_r);
+  return ff;                                                                                                                                                                                                                                                                           }  
+
+TF1* f_scint;
+
+
+
+// ******************************
+// SiPM model on an external load
+// ******************************
+void myInSignal(const int& iRun, const float& Npe, const float& gain, const int& nGen)
+{
+  // define histograms
+  hSiPM  = new TH1D(Form("hSiPM_Npe%.0f__%04d",Npe,nGen), "",npt,0,tmax); // SiPM model
+  hLYSO  = new TH1D(Form("hLYSO_Npe%.0f__%04d",Npe,nGen), "",npt,0,tmax); // LYSO scintillation
+  hInTot = new TH1D(Form("hInTot_Npe%.0f__%04d",Npe,nGen),"",npt,0,tmax); // TOFHIR input
+  hOuTot = new TH1D(Form("hOuTot_Npe%.0f__%04d",Npe,nGen),"",npt,0,tmax); // TOFHIR response
+  hLowP  = new TH1D(Form("hLowP_Npe%.0f__%04d",Npe,nGen), "",npt,0,tmax); // preamp input low-pass filter
+  hHigP  = new TH1D(Form("hHigP_Npe%.0f__%04d",Npe,nGen), "",npt,0,tmax); // high-pass at the pre input
+  hHigP2 = new TH1D(Form("hHigP2_Npe%.0f__%04d",Npe,nGen),"",npt,0,tmax); // high-pass at the pre input
+  hDisc  = new TH1D(Form("hDisc_Npe%.0f__%04d",Npe,nGen), "",npt,0,tmax); // 2^ order low-pass (Disc input)
+  hDelP  = new TH1D(Form("hDelP_Npe%.0f__%04d",Npe,nGen), "",npt,0,tmax); // delay line input low-pass filter
+  hNorm  = new TH1D(Form("hNorm_Npe%.0f__%04d",Npe,nGen), "",npt,0,tmax); // delay line input low-pass filter
+  
+  // LYSO scintillation
+  //double tau_r = 0.1; // ns
+  //double tau_d = 40.; // ns
+  double tau_r = 0.7; // ns
+  double tau_d = 1.8; // ns
+  
+  // TOFHIR bandwidth
+  float x = Npe * gain;                                    // normalize to 9500 p.e. and a gain of 3.72 (E05), which is ~ the gain at 3.5 Vov
+  double BW2fix = x < 4.06809e+08 ? 0. : 6.50098e-09*(x-4.06809e+08);
+  
+  float tau1 = 1. / (20. * 2.*3.14159)*1e3;                // nanosenconds (BW is in MHz) - TOFHIR LP 20. MHz
+  float tau2 = 4/30.;                                      // ~1.2 GHz, effect of inductance
+  float tau3 = 1. / ( BW2fix * 2.*3.14159)*1e3;   // high pass
+  float tauE = 1. / (277. * 2.*3.14159)*1e3;              // delay line - Elmore pole  - 277 MHz or 0.574 ns
+  float tau4 = 1. / (30. * 2.*3.14159)*1e3;                // additional HP - found needed in 2C
+  
+  // SiPM parameters
+  SiPMParams* sipmPars = &(SiPMParamsVec.at(iRun));
+
+  for(int ipt = 0; ipt <= npt; ++ipt)
+    { 
+      double tt = (double)ipt * (tmax/npt);
+      
+      //hLYSO -> SetBinContent(ipt+1, funcScint(tt,tau_r,tau_d));
+      
+      hSiPM -> SetBinContent(ipt+1, 0.5*((*sipmPars).RF)*SiPMPulseShape(tt,*sipmPars,1.,20.));
+      
+      hLowP -> SetBinContent(ipt+1, 1./freq*(1.-0.5/(freq*tau1))*funcLP(tt,tau1) );
+      hDisc -> SetBinContent(ipt+1, 1./freq*(1.-0.5/(freq*tau2))*funcLP(tt,tau2) );
+      if( ipt == 0 )
+	{
+	  hHigP -> SetBinContent(ipt+1, 1.-1./freq*(1.-0.5/(freq*tau3))*funcLP(tt,tau3) );
+	  hHigP2 -> SetBinContent(ipt+1, 1.-1./freq*(1.-0.5/(freq*tau4))*funcLP(tt,tau4) );
+	  hDelP -> SetBinContent(ipt+1, 1.-1./freq*(1.-0.5/(freq*tauE))*funcLP(tt,tauE) );
+	  hNorm -> SetBinContent(ipt+1,1.725e06);
+	}
+      else
+	{
+	  hHigP -> SetBinContent(ipt+1, 0.-1./freq*(1.-0.5/(freq*tau3))*funcLP(tt,tau3) );
+	  hHigP2 -> SetBinContent(ipt+1, 0.-1./freq*(1.-0.5/(freq*tau4))*funcLP(tt,tau4) );
+	  hDelP -> SetBinContent(ipt+1, 0.-1./freq*(1.-0.5/(freq*tauE))*funcLP(tt,tauE) );
+	  hNorm -> SetBinContent(ipt+1,0.);
+	}
+    }
+  //hLYSO -> Scale(Npe/hLYSO->Integral());
+  
+  
+  // uncomment here if you want random sampling
+  for(unsigned int jj = 0; jj < Npe; ++jj)
+    {
+      hLYSO -> Fill(f_scint->GetRandom());
+    }
+  
+  // convolutions
+  hConvol(hSiPM,hLYSO,hInTot);
+  hConvol(hInTot,hHigP,hOuTot);
+  hConvol(hOuTot,hLowP,hOuTot);
+  hConvol(hOuTot,hHigP2,hOuTot);
+  hConvol(hOuTot,hDisc,hOuTot);
+  hConvol(hOuTot,hDelP,hOuTot);
+  hConvol(hOuTot,hNorm,hOuTot);
+  
+  return;
+} 
+
+
+
+
+
+
+int main(int argc, char** argv)
+{
+  //----------------------
+  // parse the config file
+  CfgManager opts;
+  opts.ParseConfigFile(argv[1]);
+  
+  std::string label = opts.GetOpt<std::string>("Input.label");
+  
+  std::string plotFolder = opts.GetOpt<std::string>("Output.plotFolder");
+  
+  TFile outFile(Form("%s/waveforms_%s.root",plotFolder.c_str(),label.c_str()), "RECREATE");
+  TGraph* g_SR = new TGraph();
+  TGraph* g_amp = new TGraph();
+  
+  
+  //------------------
+  // get the SiPM list
+  GetSiPMParsFromCfg(argv[1],SiPMParamsVec,&runsVec);
+  int nRuns = runsVec.size();
+  
+  
+  //---------------------------
+  // the scintillation function
+  double tau_r = 0.7; // ns
+  double tau_d = 1.8; // ns
+  f_scint = new TF1("f_scint",scintFunc,0.,tmax,2);
+  f_scint -> SetParameters(tau_r,tau_d);
+  f_scint -> SetNpx(10000);
+  
+  
+  //----------------
+  // run the analsys
+  for(unsigned int iRun = 0; iRun < nRuns; ++iRun)
+    {
+      SiPMParams* sipmPars = &(SiPMParamsVec.at(iRun));
+      
+      float Npe = (*sipmPars).Npe;
+      float gain = ((*sipmPars).Cq+(*sipmPars).Cd) * ((*sipmPars).OV+0.25) / ( 1.602*1e-19  );
+      float x = Npe * gain;
+      
+      //int M = 1;
+      int M = 2000;
+      for(int jj = 0; jj < M; ++jj)
+	{
+	  if( jj%100 == 0 )
+	    std::cout << "\r>>> generating " << jj << " / " << M << " waveforms" << std::flush;
+	  myInSignal(iRun,Npe,gain,jj);
+            outFile.cd();
+	    //hSiPM -> Write();
+	    //hLYSO -> Write();
+	    //hInTot -> Write();
+	    hOuTot -> Write();
+	    
+	    if( jj < (M-1) )
+	      {
+		delete hSiPM;
+		delete hLYSO;
+		delete hInTot;
+		delete hOuTot;
+	      }
+	}
+      std::cout << std::endl;
+      
+      
+      //--- get the slew rate and the amplitude
+      float x1 = -1.;
+      float x2 = -1.;
+      float y1 = -1.;
+      float y2 = -1.;
+      float ymax = -999.;
+      bool SRfound = false;
+      for(int bin = 1; bin <= hOuTot->GetNbinsX(); ++bin)
+	{
+	  float x = hOuTot->GetBinCenter(bin);
+	  float y = hOuTot->GetBinContent(bin);
+	  
+	  if( y > ymax )
+	    {
+	      ymax = y;
+	    }
+	  
+	  if( y >= 4.695 && x1 == -1 && !SRfound )
+	    {
+	      x1 = x;
+	      y1 = y;
+	      x2 = hOuTot->GetBinCenter(bin+1);
+	      y2 = hOuTot->GetBinContent(bin+1);
+	      SRfound = true;
+	    }
+	}
+      
+      float SR = (y2-y1)/(x2-x1);
+      
+      std::cout << std::fixed;
+      std::cout << "Npe: "             << std::setprecision(0) << Npe
+		<< "   gain (x1E05): " << std::setprecision(2) << std::setw(5) << gain/1E05 
+		<< "   x: "            << std::scientific << std::setw(5) << x
+		<< "   slew rate: "    << std::setw(5) << SR
+		<< "   amplitude: " << ymax << std::endl;
+      g_SR -> SetPoint(g_SR->GetN(),Npe*gain,SR);
+      g_amp -> SetPoint(g_amp->GetN(),Npe*gain,ymax);      
+    }
+  
+  g_SR -> Write("g_SR");
+  g_amp -> Write("g_amp");
+  outFile.Close();
+  
+  return 0;
+}

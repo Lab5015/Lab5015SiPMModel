@@ -167,7 +167,7 @@ int main(int argc, char** argv)
 	  float x = hOuTot->GetBinCenter(bin);
 	  float y = hOuTot->GetBinContent(bin);
 	  
-	  if( y >= 3. && x1 == -1 )
+	  if( y >= 1.5 && x1 == -1 )
 	    {
 	      x1 = x;
 	      y1 = y;

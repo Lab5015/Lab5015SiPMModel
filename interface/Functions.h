@@ -33,6 +33,7 @@ struct SiPMParams {
   float RFErr;
   std::string title;
   std::string label;
+  float fitYMax;
 };
 
 int CountUnique(const std::vector<int>& v);
@@ -41,7 +42,7 @@ std::map<int,int> RemapPars(const std::vector<int>& params);
 
 void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<std::string>* runs = NULL);
 void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
-                       int& nPars_amp, int& nPars_t0, int& nPars_Rq, int& nPars_Cd, int& nPars_BW, int& nPars_L);
+                       int& nPars_amp, int& nPars_t0, int& nPars_Rq, int& nPars_Cd, int& nPars_BW, int& nPars_BW2, int& nPars_BW3);
 
 double funcLP(const double& xx, const double& tau);
 double funcScint(const double& xx, const double& tau_r, const double& tau_d);

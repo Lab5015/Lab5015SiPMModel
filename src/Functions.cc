@@ -75,6 +75,7 @@ void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<std
     std::vector<float> vec_Cg  = opts.GetOpt<std::vector<float> >(Form("%s.Cg",iSiPM.c_str()));
     std::vector<float> vec_RL  = opts.GetOpt<std::vector<float> >(Form("%s.RL",iSiPM.c_str()));
     std::vector<float> vec_RF  = opts.GetOpt<std::vector<float> >(Form("%s.RF",iSiPM.c_str()));
+    std::vector<float> vec_fitYMax = opts.GetOpt<std::vector<float> >(Form("%s.fitYMax",iSiPM.c_str()));
     pars.Npe   = vec_Npe.at(0);
     pars.OV    = vec_OV.at(0);
     pars.Rq    = vec_Rq.at(0);
@@ -85,6 +86,7 @@ void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<std
     pars.Cg    = vec_Cg.at(0);
     pars.RL    = vec_RL.at(0);
     pars.RF    = vec_RF.at(0);
+    pars.fitYMax = vec_fitYMax.at(0);
     if( vec_Rq.size() > 1 ) pars.RqErr = vec_Rq.at(1); else pars.RqErr = 0.;
     if( vec_Cq.size() > 1 ) pars.CqErr = vec_Cq.at(1); else pars.CqErr = 0.;
     if( vec_Rd.size() > 1 ) pars.RdErr = vec_Rd.at(1); else pars.RdErr = 0.;
@@ -112,7 +114,7 @@ void GetSiPMParsFromCfg(char* cfg, std::vector<SiPMParams>& vec, std::vector<std
 
 
 void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
-                       int& nPars_amp, int& nPars_t0, int& nPars_Rq, int& nPars_Cd, int& nPars_BW, int& nPars_BW2)
+                       int& nPars_amp, int& nPars_t0, int& nPars_Rq, int& nPars_Cd, int& nPars_BW, int& nPars_BW2, int& nPars_BW3)
 {
   // parse the config file
   CfgManager opts;
@@ -124,6 +126,7 @@ void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
   std::vector<int> params_Cd;
   std::vector<int> params_BW;
   std::vector<int> params_BW2;
+  std::vector<int> params_BW3;
   
   std::vector<std::string> SiPMList = opts.GetOpt<std::vector<std::string> >("Input.SiPMList");
   for(auto iSiPM : SiPMList)
@@ -134,6 +137,7 @@ void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
     int param_Cd  = opts.GetOpt<int>(Form("%s.paramCd", iSiPM.c_str())); params_Cd.push_back( param_Cd );
     int param_BW  = opts.GetOpt<int>(Form("%s.paramBW", iSiPM.c_str())); params_BW.push_back( param_BW );
     int param_BW2 = opts.GetOpt<int>(Form("%s.paramBW2",iSiPM.c_str())); params_BW2.push_back( param_BW2 );
+    int param_BW3 = opts.GetOpt<int>(Form("%s.paramBW3",iSiPM.c_str())); params_BW3.push_back( param_BW3 );
   }
   
   nPars_amp = CountUnique(params_amp);
@@ -142,6 +146,7 @@ void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
   nPars_Cd  = CountUnique(params_Cd);
   nPars_BW  = CountUnique(params_BW);
   nPars_BW2 = CountUnique(params_BW2);
+  nPars_BW3 = CountUnique(params_BW3);
   
   std::map<int,int> remap_amp = RemapPars(params_amp);
   std::map<int,int> remap_t0  = RemapPars(params_t0);
@@ -149,6 +154,7 @@ void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
   std::map<int,int> remap_Cd  = RemapPars(params_Cd);
   std::map<int,int> remap_BW  = RemapPars(params_BW);
   std::map<int,int> remap_BW2 = RemapPars(params_BW2);
+  std::map<int,int> remap_BW3 = RemapPars(params_BW3);
   
   std::cout << "-------- FIT PARAMETERS --------" << std::endl;
   std::cout << "nPars_amp: " << nPars_amp << std::endl;
@@ -157,21 +163,24 @@ void GetFitParsFromCfg(char* cfg, const int& nRuns, std::map<int,int>& parIndex,
   std::cout << "nPars_Cd:  " << nPars_Cd  << std::endl;
   std::cout << "nPars_BW:  " << nPars_BW  << std::endl;
   std::cout << "nPars_BW2: " << nPars_BW2 << std::endl;
+  std::cout << "nPars_BW3: " << nPars_BW3 << std::endl;
   for(unsigned int iRun = 0; iRun < nRuns; ++iRun)
   {
-    if( params_amp.at(iRun) >= 0 ) parIndex[0+6*iRun] = remap_amp[params_amp.at(iRun)];                                                         else parIndex[0+6*iRun] = -1;
-    if( params_t0.at(iRun)  >= 0 ) parIndex[1+6*iRun] = nPars_amp + remap_t0[params_t0.at(iRun)];                                               else parIndex[1+6*iRun] = -1;
-    if( params_Rq.at(iRun)  >= 0 ) parIndex[2+6*iRun] = nPars_amp + nPars_t0 + remap_Rq[params_Rq.at(iRun)];                                    else parIndex[2+6*iRun] = -1;
-    if( params_Cd.at(iRun)  >= 0 ) parIndex[3+6*iRun] = nPars_amp + nPars_t0 + nPars_Rq + remap_Cd[params_Cd.at(iRun)];                         else parIndex[3+6*iRun] = -1;
-    if( params_BW.at(iRun)  >= 0 ) parIndex[4+6*iRun] = nPars_amp + nPars_t0 + nPars_Rq + nPars_Cd + remap_BW[params_BW.at(iRun)];              else parIndex[4+6*iRun] = -1;
-    if( params_BW2.at(iRun) >= 0 ) parIndex[5+6*iRun] = nPars_amp + nPars_t0 + nPars_Rq + nPars_Cd + nPars_BW + remap_BW2[params_BW2.at(iRun)]; else parIndex[5+6*iRun] = -1;
+    if( params_amp.at(iRun) >= 0 ) parIndex[0+7*iRun] = remap_amp[params_amp.at(iRun)];                                                                     else parIndex[0+7*iRun] = -1;
+    if( params_t0.at(iRun)  >= 0 ) parIndex[1+7*iRun] = nPars_amp + remap_t0[params_t0.at(iRun)];                                                           else parIndex[1+7*iRun] = -1;
+    if( params_Rq.at(iRun)  >= 0 ) parIndex[2+7*iRun] = nPars_amp + nPars_t0 + remap_Rq[params_Rq.at(iRun)];                                                else parIndex[2+7*iRun] = -1;
+    if( params_Cd.at(iRun)  >= 0 ) parIndex[3+7*iRun] = nPars_amp + nPars_t0 + nPars_Rq + remap_Cd[params_Cd.at(iRun)];                                     else parIndex[3+7*iRun] = -1;
+    if( params_BW.at(iRun)  >= 0 ) parIndex[4+7*iRun] = nPars_amp + nPars_t0 + nPars_Rq + nPars_Cd + remap_BW[params_BW.at(iRun)];                          else parIndex[4+7*iRun] = -1;
+    if( params_BW2.at(iRun) >= 0 ) parIndex[5+7*iRun] = nPars_amp + nPars_t0 + nPars_Rq + nPars_Cd + nPars_BW + remap_BW2[params_BW2.at(iRun)];             else parIndex[5+7*iRun] = -1;
+    if( params_BW3.at(iRun) >= 0 ) parIndex[6+7*iRun] = nPars_amp + nPars_t0 + nPars_Rq + nPars_Cd + nPars_BW + nPars_BW2 + remap_BW3[params_BW3.at(iRun)]; else parIndex[6+7*iRun] = -1;
     std::cout << "iRun: " << iRun 
-	      << "  parIndex[amp]  = " << parIndex[0+6*iRun] 
-	      << "   parIndex[t0]  = " << parIndex[1+6*iRun] 
-	      << "   parIndex[Rq]  = " << parIndex[2+6*iRun] 
-	      << "   parIndex[Cd]  = " << parIndex[3+6*iRun] 
-	      << "   parIndex[BW]  = " << parIndex[4+6*iRun] 
-	      << "   parIndex[BW2] = " << parIndex[5+6*iRun] 
+	      << "  parIndex[amp]  = " << parIndex[0+7*iRun] 
+	      << "   parIndex[t0]  = " << parIndex[1+7*iRun] 
+	      << "   parIndex[Rq]  = " << parIndex[2+7*iRun] 
+	      << "   parIndex[Cd]  = " << parIndex[3+7*iRun] 
+	      << "   parIndex[BW]  = " << parIndex[4+7*iRun] 
+	      << "   parIndex[BW2] = " << parIndex[5+7*iRun]
+	      << "   parIndex[BW3] = " << parIndex[6+7*iRun]
 	      << std::endl;
   }
   std::cout << "--------------------------------" << std::endl;

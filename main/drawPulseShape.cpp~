@@ -59,13 +59,17 @@ float amp0 = -1.;
 float t00 = -1.;
 float BW0 = -1.;
 float BW20 = -1.;
+float BW30 = -1.;
 
 bool twoPanels = false;
 
+// fit range
+float x1 = 10.; 
+float x2 = 180.;
 
 // Define time axis and binning
-const int npt     = 2000;
-const double tmax = 200.;
+const int npt     = int(pow(2,13));
+const double tmax = 409.6;
 const double freq = npt / tmax;
 
 float tMin = 0.;
@@ -76,30 +80,34 @@ unsigned int nRuns = -1;
 std::vector<TGraphErrors*> g_data;
 std::vector<TH1D*> hSiPM;
 std::vector<TH1D*> hLaser;
+std::vector<TH1D*> hLYSO;
 std::vector<TH1D*> hInTot;
 std::vector<TH1D*> hBand;
 std::vector<TH1D*> hBand2;
-std::vector<TH1D*> hLowP;
 std::vector<TH1D*> hDisc;
+std::vector<TH1D*> hLowP;
 std::vector<TH1D*> hHigP;
+std::vector<TH1D*> hLowP2;
+std::vector<TH1D*> hHigP2;
 std::vector<TH1D*> hDelP;
+std::vector<TH1D*> hNorm;
 std::vector<TH1D*> hOuTot;
 
+TGraph* g_chisq = new TGraph();
 
 
 void myLoadData(std::vector<std::string> runs, const std::string& inFolder, const std::string& baseName, const std::string& psName)
 {
   for(unsigned int iRun = 0; iRun < nRuns; ++iRun)
   {
+    SiPMParams sipmPars = SiPMParamsVec.at(iRun);  
+    
     TFile* inFile = TFile::Open(Form("%s/%s_run%s.root",inFolder.c_str(),baseName.c_str(),runsVec[iRun].c_str()),"READ");
-    //TFile* inFile = TFile::Open(Form("%s/%s_%s_highLaser.root",inFolder.c_str(),baseName.c_str(),runsVec[iRun].c_str()),"READ");
     std::cout << Form("%s/%s_run%s.root",inFolder.c_str(),baseName.c_str(),runsVec[iRun].c_str()) << std::endl;
     
     if( !isTOFHIR )
       {
-	TGraph* g_temp;
-	
-	//g_temp = (TGraph*)( inFile->Get(Form("%s",psName.c_str())) );
+	TGraph* g_temp;	
 	g_temp = (TGraph*)( inFile->Get(Form("%s",psName.c_str())) );
 	double x,y;
 	for(int iPoint = 0; iPoint < g_temp->GetN(); ++iPoint)
@@ -109,27 +117,25 @@ void myLoadData(std::vector<std::string> runs, const std::string& inFolder, cons
 	    g_data[iRun] -> SetPointError(iPoint,0.,0.002);
 	  }
 	
-	//TProfile* p_data = (TProfile*)inFile->Get(Form("%s",psName.c_str()));
-	//double x,y, ey;
-	//for( int iBin = 1; iBin <= p_data->GetNbinsX(); ++iBin)
-        //  {
-	//    x = p_data -> GetBinCenter(iBin); 
-	//    y = p_data -> GetBinContent(iBin);
-	//    ey = p_data -> GetBinError(iBin);
-	//    g_data[iRun] -> SetPoint(g_data[iRun]->GetN(),x,y);
-	//    g_data[iRun] -> SetPointError(g_data[iRun]->GetN()-1,0.,ey);
-	//  }
       }
     else
       {
-	g_data[iRun] = (TGraphErrors*)( inFile->Get(Form("%s",psName.c_str())) );
+	TGraph* g_temp = (TGraphErrors*)( inFile->Get(Form("%s_Vov%.2f",psName.c_str(),sipmPars.OV)) );
+	g_data[iRun] = new TGraphErrors();
 	double x,y, ey;
-	for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); ++iPoint)
+	for(int iPoint = 0; iPoint < int(0.5*g_temp->GetN()); ++iPoint)
 	  {
-	    g_data[iRun] -> GetPoint(iPoint,x,y);
-	    g_data[iRun] -> SetPoint(iPoint,x+20.,y);
-	    g_data[iRun] -> SetPointError(iPoint,0.,0.2);
-	    std::cout << iPoint << "," << x << "," << y << std::endl;
+	    g_temp -> GetPoint(iPoint,x,y);
+	    if( y > sipmPars.fitYMax ) continue;
+	    g_data[iRun] -> SetPoint(g_data[iRun]->GetN(),x+1.,y);
+	    g_data[iRun] -> SetPointError(g_data[iRun]->GetN()-1,0.,0.2);
+	  }
+	for(int iPoint = 0; iPoint < int(0.5*g_temp->GetN()); ++iPoint)
+	  {
+	    g_temp -> GetPoint(g_temp->GetN()-iPoint-1,x,y);
+	    if( y > sipmPars.fitYMax ) continue;
+	    g_data[iRun] -> SetPoint(g_data[iRun]->GetN(),x+1.,y);
+	    g_data[iRun] -> SetPointError(g_data[iRun]->GetN()-1,0.,0.2);
 	  }
       }
     inFile->Close();
@@ -153,31 +159,35 @@ void myInSignal(const int& iRun, double* par = NULL)
   double Cd  = (*sipmPars).Cd;
   double BW  = BW0;
   double BW2 = BW20;
+  double BW3 = BW30;
   
   if( par )
     {
-      if( parIndex[0+6*iRun] >= 0 ) amp = par[parIndex[0+6*iRun]];
-      if( parIndex[1+6*iRun] >= 0 )  t0 = par[parIndex[1+6*iRun]];
-      if( parIndex[2+6*iRun] >= 0 )  Rq = par[parIndex[2+6*iRun]];
-      if( parIndex[3+6*iRun] >= 0 )  Cd = par[parIndex[3+6*iRun]];
-      if( parIndex[4+6*iRun] >= 0 )  BW = par[parIndex[4+6*iRun]];
-      if( parIndex[5+6*iRun] >= 0 ) BW2 = par[parIndex[5+6*iRun]];
+      if( parIndex[0+7*iRun] >= 0 ) amp = par[parIndex[0+7*iRun]];
+      if( parIndex[1+7*iRun] >= 0 )  t0 = par[parIndex[1+7*iRun]];
+      if( parIndex[2+7*iRun] >= 0 )  Rq = par[parIndex[2+7*iRun]];
+      if( parIndex[3+7*iRun] >= 0 )  Cd = par[parIndex[3+7*iRun]];
+      if( parIndex[4+7*iRun] >= 0 )  BW = par[parIndex[4+7*iRun]];
+      if( parIndex[5+7*iRun] >= 0 ) BW2 = par[parIndex[5+7*iRun]];
+      if( parIndex[6+7*iRun] >= 0 ) BW3 = par[parIndex[6+7*iRun]];
       
       amp0 = amp;
       t00 = t0;
       BW0 = BW;
       BW20 = BW2;
+      BW30 = BW3;
     }
   
   (*sipmPars).Rq = Rq;
   (*sipmPars).Cd = Cd;
   
-  fitPars[0+6*iRun] = amp;
-  fitPars[1+6*iRun] = t0;
-  fitPars[2+6*iRun] = Rq;
-  fitPars[3+6*iRun] = Cd;
-  fitPars[4+6*iRun] = BW;
-  fitPars[5+6*iRun] = BW2;
+  fitPars[0+7*iRun] = amp;
+  fitPars[1+7*iRun] = t0;
+  fitPars[2+7*iRun] = Rq;
+  fitPars[3+7*iRun] = Cd;
+  fitPars[4+7*iRun] = BW;
+  fitPars[5+7*iRun] = BW2;
+  fitPars[6+7*iRun] = BW3;
   
   // bandwidth low-pass filter
   double tau_band = 1./(BW*3.14159*2.)*1e3; // nanosenconds (BW is in MHz)
@@ -187,46 +197,50 @@ void myInSignal(const int& iRun, double* par = NULL)
   
   double tau1 = 1./(BW*3.14159*2.)*1e3; // nanosenconds (BW is in MHz)
   double tau2 = 0.133;
-  double tau3 = 1./(BW2*3.14159*2.)*1e3; // nanosenconds (BW is in MHz)
+  double GNpe = ((*sipmPars).Cq+(*sipmPars).Cd)*((*sipmPars).OV+0.25)/(1.602*1e-19)*(*sipmPars).Npe;
+  //double BW2fix = 10.275 + 8.92558e-09*GNpe; 
+  double BW2fix = GNpe < 4.06809e+08 ? 0. : 6.50098e-09*(GNpe-4.06809e+08);
+  double tau3 = 1./(BW2fix*3.14159*2.)*1e3; // nanosenconds (BW is in MHz)
+  
   //double tauE = 0.5736; // from Elmore
-  double tauE = 0.8736; // from Elmore
+  double tauE = 1./(BW3*3.14159*2.)*1e3; // from fit
+  
+  double tauHP2 = 1./(30.*3.14159*2.)*1e3; // additional HP with 30 MHz pole -- effective in 2C 30 MHz
   
   // Hitograms for FFT analysis 
   for(int ipt = 0; ipt <= npt; ++ipt)
   { 
     double tt = (double)ipt * (tmax/npt);
     
-    //hSiPM[iRun] -> SetBinContent(ipt+1, 0.5*((*sipmPars).RF)*SiPMPulseShape(tt,*sipmPars,amp,t0)); // 0.5*RF is the total transimpedance
-    hSiPM[iRun] -> SetBinContent(ipt+1, 5.*0.5*((*sipmPars).RF)*SiPMPulseShape(tt,*sipmPars,amp,t0)); // 0.5*RF is the total transimpedance, 5x for the high gain output
+    hSiPM[iRun] -> SetBinContent(ipt+1, 0.5*((*sipmPars).RF)*SiPMPulseShape(tt,*sipmPars,amp,t0)); // 0.5*RF is the total transimpedance
+    //hSiPM[iRun] -> SetBinContent(ipt+1, 5.*0.5*((*sipmPars).RF)*SiPMPulseShape(tt,*sipmPars,amp,t0)); // 0.5*RF is the total transimpedance, 5x for the high gain output
     
     // AdvanSid bandwidth
     hBand[iRun]     -> SetBinContent(ipt+1, (1.-0.5/(freq*tau_band))*funcLP(tt,tau_band));
     hBand2[iRun]    -> SetBinContent(ipt+1, (1.-0.5/(freq*tau_band2))*funcLP(tt,tau_band2));
     
     // TOFHIR bandwidth
-    hLowP[iRun] -> SetBinContent(ipt+1, (1.-0.5/(freq*tau1))*funcLP(tt,tau1) );
-    hDisc[iRun] -> SetBinContent(ipt+1, (1.-0.5/(freq*tau2))*funcLP(tt,tau2) );
+    hLowP[iRun] -> SetBinContent(ipt+1, 1./freq*(1.-0.5/(freq*tau1))*funcLP(tt,tau1) );
+    hDisc[iRun] -> SetBinContent(ipt+1, 1./freq*(1.-0.5/(freq*tau2))*funcLP(tt,tau2) );
     if( ipt == 0 )
       {
-	hHigP[iRun] -> SetBinContent(ipt+1, freq-(1.-0.5/(freq*tau3))*funcLP(tt,tau3) );
-	hDelP[iRun] -> SetBinContent(ipt+1, freq-(1.-0.5/(freq*tauE))*funcLP(tt,tauE) );
+	hHigP[iRun] -> SetBinContent(ipt+1, 1.-1./freq*(1.-0.5/(freq*tau3))*funcLP(tt,tau3) );
+	hHigP2[iRun] -> SetBinContent(ipt+1, 1.-1./freq*(1.-0.5/(freq*tauHP2))*funcLP(tt,tauHP2) );
+	hDelP[iRun] -> SetBinContent(ipt+1, 1.-1./freq*(1.-0.5/(freq*tauE))*funcLP(tt,tauE) );
+	hNorm[iRun] -> SetBinContent(ipt+1,1.725e06);
       }
     else
       {
-	hHigP[iRun] -> SetBinContent(ipt+1, 0.-(1.-0.5/(freq*tau3))*funcLP(tt,tau3) );
-	hDelP[iRun] -> SetBinContent(ipt+1, 0.-(1.-0.5/(freq*tauE))*funcLP(tt,tauE) );
+	hHigP[iRun] -> SetBinContent(ipt+1, 0.-1./freq*(1.-0.5/(freq*tau3))*funcLP(tt,tau3) );
+	hHigP2[iRun] -> SetBinContent(ipt+1, 0.-1./freq*(1.-0.5/(freq*tauHP2))*funcLP(tt,tauHP2) );
+	hDelP[iRun] -> SetBinContent(ipt+1, 0.-1./freq*(1.-0.5/(freq*tauE))*funcLP(tt,tauE) );
+	hNorm[iRun] -> SetBinContent(ipt+1,0.);
       }
   }
   
   hBand[iRun] -> Scale(1./hBand[iRun]->Integral());
   hBand2[iRun] -> Scale(1./hBand2[iRun]->Integral());
-  
-  // hLowP[iRun] -> Scale(1./hLowP[iRun]->Integral());
-  // hDisc[iRun] -> Scale(1./hDisc[iRun]->Integral());
-  // hHigP[iRun] -> Scale(1./hHigP[iRun]->Integral());
-  // hDelP[iRun] -> Scale(1./hDelP[iRun]->Integral());
-  
-  
+    
   // convolutions
   if( !isTOFHIR )
     {
@@ -237,35 +251,15 @@ void myInSignal(const int& iRun, double* par = NULL)
   
   else
     {
-      hConvol(hSiPM[iRun],hLaser[iRun],hInTot[iRun]);
+      //hConvol(hSiPM[iRun],hLaser[iRun],hInTot[iRun]);
+      hConvol(hSiPM[iRun],hLYSO[iRun],hInTot[iRun]);
       hConvol(hInTot[iRun],hHigP[iRun],hOuTot[iRun]);
       hConvol(hOuTot[iRun],hLowP[iRun],hOuTot[iRun]);
+      hConvol(hOuTot[iRun],hHigP2[iRun],hOuTot[iRun]);
       hConvol(hOuTot[iRun],hDisc[iRun],hOuTot[iRun]);
       hConvol(hOuTot[iRun],hDelP[iRun],hOuTot[iRun]);
-    }
-  
-  // TEMP!!!
-  //hConvol(hSiPM[iRun],hLaser[iRun],hOuTot[iRun]);
-  
-  // TF1* f_band_re = new TF1("f_band_re","[0]*sin([1]*x+[2])*exp(-1.*[3]*x*x)",0.,2.5);
-  // f_band_re -> SetParameters(2.12208e00,5.12866e01,1.49266e00,8.76131e00);
-  // TF1* f_band_im = new TF1("f_band_im","[0]*sin([1]*x+[2])*exp(-1.*[3]*x*x)",0.,2.5);
-  // f_band_im -> SetParameters(2.23291e00,5.03354e01,3.25655e00,9.07746e00);
-  // TF1* f_band_mag = new TF1("f_band_mag","exp([0]+[1]*x+[2]*x*x+[3]*x*x*x)",0.,2.5);
-  // f_band_mag -> SetParameters(8.79094e-01,-2.85437e00,6.23893e00,-1.32199e01);
-  //hConvol(hInTot[iRun],f_band_re,f_band_im,hOuTot[iRun]);
-  
-  // //TFile* inFile_band = TFile::Open("/home/cmsdaq/DRS4/drs-5.0.6-lab5015/reco_pulses/pulses_run0149.root");
-  // TFile* inFile_band = TFile::Open("data/effectiveBW_147.root");
-  // // TH1F* hBand_time = (TH1F*) inFile_band -> Get("h_ps_entry0");
-  // // hBand_time -> Scale(1./hBand_time->Integral());
-  // //TH1F* hBand_ph = (TH1F*) inFile_band -> Get("h_DFT_PH_avg");
-  // //hConvol(hInTot[iRun],f_band_mag,hBand_ph,hOuTot[iRun]);
-  // hConvol(hInTot[iRun],hBand_re[iRun],hBand_im[iRun],hOuTot[iRun]);
-  // //hConvol(hInTot[iRun],(TH1D*)hBand_time,hOuTot[iRun]);
-  
-  // inFile_band -> Close();
-  
+      hConvol(hOuTot[iRun],hNorm[iRun],hOuTot[iRun]);
+    }  
   return;
 } 
 
@@ -367,12 +361,12 @@ void myDrawFit(const std::string& plotFolder, const std::string& commonLabel)
     {
       g_data[iRun] -> GetPoint(iPoint,xx,yy);
       if( Amax <  yy ) 
-        Amax = yy;
+	  Amax = yy;
     }
     for(int iBin = 1; iBin <= hOuTot[iRun]->GetNbinsX(); ++iBin)
       {
-	if( Amax < hOuTot[iRun]->GetBinContent(iBin) ) 
-	  Amax = hOuTot[iRun]->GetBinContent(iBin);
+    	if( Amax < hOuTot[iRun]->GetBinContent(iBin) ) 
+    	  Amax = hOuTot[iRun]->GetBinContent(iBin);
       } 
     
     // Draw
@@ -410,53 +404,19 @@ void myDrawFit(const std::string& plotFolder, const std::string& commonLabel)
     legend->AddEntry(g_data[iRun],"data","LP"); 
     legend->Draw("same");
     
-    TLatex* latex = new TLatex(0.40,0.70,Form("V_{OV} = %.1f V", sipmPars.OV));
+    TLatex* latex = new TLatex(0.70,0.80,Form("V_{OV} = %.1f V", sipmPars.OV));
     latex -> SetNDC();
     latex -> SetTextFont(42);
     latex -> SetTextSize(0.04);
     latex -> SetTextColor(kBlack);
     latex -> Draw("same");
     
-    TLatex* latex1 = new TLatex(0.40,0.65,Form("N_{c} = %.0f   C_{g} = %.0f pF", sipmPars.Nc, sipmPars.Cg*1e12));
-    latex1 -> SetNDC();
-    latex1 -> SetTextFont(42);
-    latex1 -> SetTextSize(0.04);
-    latex1 -> SetTextColor(kBlack);
-    latex1 -> Draw("same");
-    
-    TLatex* latex2 = new TLatex(0.40,0.60,Form("C_{d} = %.1f fF, C_{q} = %.1f fF, R_{q} = %.0f k#Omega", fitPars[3+6*iRun]*1e15,sipmPars.Cq*1e15, fitPars[2+6*iRun]*1e-3));
+    TLatex* latex2 = new TLatex(0.70,0.75,Form("N_{pe} = %d", int(sipmPars.Npe)));
     latex2 -> SetNDC();
     latex2 -> SetTextFont(42);
     latex2 -> SetTextSize(0.04);
     latex2 -> SetTextColor(kBlack);
     latex2 -> Draw("same");
-    
-    TLatex* latex3;
-    if( !isTOFHIR ) latex3 = new TLatex(0.40,0.50,Form("BW_{1} = %.0f MHz   BW_{2} = %.0f MHz", fitPars[4+6*iRun],fitPars[4+6*iRun]+fitPars[5+6*iRun]));
-    else            latex3 = new TLatex(0.40,0.50,Form("BW_{1} = %.0f MHz   BW_{2} = %.0f MHz", fitPars[4+6*iRun],fitPars[5+6*iRun]));
-    latex3 -> SetNDC();
-    latex3 -> SetTextFont(42);
-    latex3 -> SetTextSize(0.04);
-    latex3 -> SetTextColor(kBlack);
-    latex3 -> Draw("same");
-
-    TLatex* latex4 = new TLatex(0.22,0.15,Form("#splitline{#font[52]{A} = %.2f}{t_{0} = %.2f ns}",fitPars[0+6*iRun],5.+fitPars[1+6*iRun]));
-    latex4 -> SetNDC();
-    latex4 -> SetTextFont(42);
-    latex4 -> SetTextSize(0.03);
-    latex4 -> SetTextColor(kBlack);
-    latex4 -> Draw("same");
-    
-    // TH1D* h_data = new TH1D(Form("h_data_%d",iRun), "",npt,0,tmax);
-    // for(int iBin = 1; iBin <= hOuTot[iRun]->GetNbinsX(); ++iBin)
-    //   {
-    // 	hOuTot[iRun] -> SetBinError(iBin,0.01);
-    // 	h_data -> SetBinContent(iBin,g_data[iRun]->Eval(hOuTot[iRun]->GetBinCenter(iBin)));
-    // 	h_data -> SetBinError(iBin,0.001);
-    //   }
-    // TRatioPlot* rp = new TRatioPlot(h_data, hOuTot[iRun]);
-    // rp -> GetLowerRefYaxis() -> SetRangeUser(-10.,10.);
-    // rp -> Draw("same");
     
     if( twoPanels )
       {
@@ -501,9 +461,13 @@ void myDrawFit(const std::string& plotFolder, const std::string& commonLabel)
     g_data[iRun] -> Write("g_data");
     hSiPM[iRun] -> Write();
     hLaser[iRun] -> Write();
+    hLYSO[iRun] -> Write();
     hInTot[iRun] -> Write();
     hBand[iRun] -> Write();
     hBand2[iRun] -> Write();
+    hLowP[iRun] -> Write();
+    hHigP[iRun] -> Write();
+    hDelP[iRun] -> Write();
     hOuTot[iRun] -> Write();
     errorBand -> Write("g_errorBand");
   }
@@ -526,39 +490,37 @@ void fcn(int& npar, double* gin, double& f, double* par, int iflag)
     myInSignal(iRun, par);
     
     // restrict fit range
-    double x1 = hOuTot[iRun]->GetXaxis()->GetXmin();
-    double x2 = hOuTot[iRun]->GetXaxis()->GetXmax();
-    x1 = 10.; 
-    x2 = 180.;
+    //double x1 = hOuTot[iRun]->GetXaxis()->GetXmin();
+    //double x2 = hOuTot[iRun]->GetXaxis()->GetXmax();
 
     double xx, yy, ey;
-    double ymax = 0.;
-    for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); ++iPoint)
-    {
-      g_data[iRun] -> GetPoint(iPoint,xx,yy);
-      if( yy > ymax )
-      {
-        ymax = yy;
-      }
-    }
-    for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); ++iPoint)
-      {
-	g_data[iRun] -> GetPoint(iPoint,xx,yy);
-	if( yy > 0.01 )
-	  {
-	    x1 = xx;
-	    break;
-	  }
-      }
-    for(int iPoint = g_data[iRun]->GetN()-1; iPoint >= 0; --iPoint)
-    {
-      g_data[iRun] -> GetPoint(iPoint,xx,yy);
-      if( yy > 0.02*ymax || yy > 0.01 )
-      {
-        x2 = xx;
-        break;
-      }
-    }
+    //double ymax = 0.;
+    //for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); ++iPoint)
+    //{
+    //  g_data[iRun] -> GetPoint(iPoint,xx,yy);
+    //  if( yy > ymax )
+    //  {
+    //    ymax = yy;
+    //  }
+    //}
+    //for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); ++iPoint)
+    // {
+    //	g_data[iRun] -> GetPoint(iPoint,xx,yy);
+    //	if( yy > 0.01 )
+    //	  {
+    //	    x1 = xx;
+    //	    break;
+    //	  }
+    // }
+    //for(int iPoint = g_data[iRun]->GetN()-1; iPoint >= 0; --iPoint)
+    //{
+    //  g_data[iRun] -> GetPoint(iPoint,xx,yy);
+    //  if( yy > 0.02*ymax || yy > 0.01 )
+    //  {
+    //    x2 = xx;
+    //    break;
+    //  }
+    //}
     
     // compute chisquare
     for(int iPoint = 0; iPoint < g_data[iRun]->GetN(); iPoint++)
@@ -572,12 +534,13 @@ void fcn(int& npar, double* gin, double& f, double* par, int iflag)
         //std::cout << "iPoint: " << iPoint << "   xx: " << xx << "  yy: " << yy << "   func: " << hOuTot[iRun]->Interpolate(xx) << "   delta: " << delta << "   chisq: " << chisq << std::endl;
       }
     }
-    // std::cout << ">>> chisq: " << chisq;
-    // for(int iPar = 0; iPar < npar; ++iPar)
-    //   std::cout << "   iPar: " << iPar << " val: " << par[iPar];
-    // std::cout << std::endl;
+     // std::cout << ">>> chisq: " << chisq;
+     // for(int iPar = 0; iPar < npar; ++iPar)
+     //   std::cout << "   iPar: " << iPar << " val: " << par[iPar];
+     // std::cout << std::endl;
   }
   
+  g_chisq -> SetPoint(g_chisq->GetN(),par[8],chisq);
   f = chisq;
 }
 
@@ -587,9 +550,9 @@ void fcn(int& npar, double* gin, double& f, double* par, int iflag)
 // fit the pulse shape
 // ************************
 void myFitPulse(const bool& minimize,
-                const int& nPars_amp, const int& nPars_t0, const int& nPars_Rq, const int& nPars_Cd, const int& nPars_BW, const int& nPars_BW2)
+                const int& nPars_amp, const int& nPars_t0, const int& nPars_Rq, const int& nPars_Cd, const int& nPars_BW, const int& nPars_BW2, const int& nPars_BW3)
 {
-  int nPars = nPars_amp+nPars_t0+nPars_Rq+nPars_Cd+nPars_BW+nPars_BW2;
+  int nPars = nPars_amp+nPars_t0+nPars_Rq+nPars_Cd+nPars_BW+nPars_BW2+nPars_BW3;
   
   // Define fit model
   TVirtualFitter::SetDefaultFitter("Minuit");
@@ -607,12 +570,13 @@ void myFitPulse(const bool& minimize,
   fitter -> ExecuteCommand("SET ERR", arglist,1);
   
   // INITIALIZE PARAMETERS
-  for(int iPar = 0; iPar < nPars_amp; ++iPar) fitter -> SetParameter(iPar, Form("Amp"), amp0, 0.01, 1e-6,10.);
-  for(int iPar = 0; iPar < nPars_t0; ++iPar)  fitter -> SetParameter(nPars_amp+iPar, Form("t0"), t00, 0.05, -0., 25.);
+  for(int iPar = 0; iPar < nPars_amp; ++iPar) fitter -> SetParameter(iPar, Form("Amp"), amp0, 0.1, 0.1,10.);
+  for(int iPar = 0; iPar < nPars_t0; ++iPar)  fitter -> SetParameter(nPars_amp+iPar, Form("t0"), t00, 0.05, 19., 21.);
   for(int iPar = 0; iPar < nPars_Rq; ++iPar)  fitter -> SetParameter(nPars_amp+nPars_t0+iPar, Form("Rq"), 450e3, 10e3, 0. ,1000e3);
   for(int iPar = 0; iPar < nPars_Cd; ++iPar)  fitter -> SetParameter(nPars_amp+nPars_t0+nPars_Rq+iPar, Form("Cd"), 12.4e-15, 0.2e-15, 1e-15 ,80e-15);
   for(int iPar = 0; iPar < nPars_BW; ++iPar)  fitter -> SetParameter(nPars_amp+nPars_t0+nPars_Rq+nPars_Cd+iPar, "BW", BW0, 2., 0., 200.);
   for(int iPar = 0; iPar < nPars_BW2;++iPar)  fitter -> SetParameter(nPars_amp+nPars_t0+nPars_Rq+nPars_Cd+nPars_BW+iPar, "BW2", BW20, 5., 0., 500.);
+  for(int iPar = 0; iPar < nPars_BW3;++iPar)  fitter -> SetParameter(nPars_amp+nPars_t0+nPars_Rq+nPars_Cd+nPars_BW+nPars_BW2+iPar, "BW3", BW30, 5., 50., 200.);
   
   // INITIALIZE FCN
   arglist[0] = 1; 
@@ -653,6 +617,7 @@ int main(int argc, char** argv)
   t00 = opts.GetOpt<float>("Input.t00");
   BW0 = opts.GetOpt<float>("Input.BW0");
   BW20 = opts.GetOpt<float>("Input.BW20");
+  BW30 = opts.GetOpt<float>("Input.BW30");
   
   tMin = opts.GetOpt<float>("Input.tMin");
   tMax = opts.GetOpt<float>("Input.tMax");
@@ -662,7 +627,7 @@ int main(int argc, char** argv)
   // get the SiPM and run list
   GetSiPMParsFromCfg(argv[1],SiPMParamsVec,&runsVec);
   nRuns = runsVec.size();
-  fitPars.reserve(6*nRuns);
+  fitPars.reserve(7*nRuns);
   
 
   //-----------------------  
@@ -681,18 +646,22 @@ int main(int argc, char** argv)
   // define histograms
   for(unsigned int iRun = 0; iRun < nRuns; ++iRun)
     {
-      g_data.push_back( new TGraphErrors() );
-      hSiPM.push_back(  new TH1D(Form("hSiPM_%d",iRun), "",npt,0,tmax) ); // SiPM pulse
-      hLaser.push_back( new TH1D(Form("hLaser_%d",iRun),"",npt,0,tmax) ); // laser response
-      hInTot.push_back( new TH1D(Form("hInTot_%d",iRun),"",npt,0,tmax) ); // input pulse
-      hBand.push_back(  new TH1D(Form("hBand_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
-      hBand2.push_back( new TH1D(Form("hBand2_%d",iRun),"",npt,0,tmax) ); // readout board bandwidth
-      hLowP.push_back(  new TH1D(Form("hLowP_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
-      hDisc.push_back(  new TH1D(Form("hDisc_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
-      hHigP.push_back(  new TH1D(Form("hHigP_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
-      hDelP.push_back(  new TH1D(Form("hDelP_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
-      hOuTot.push_back( new TH1D(Form("hOuTot_%d",iRun),"",npt,0,tmax) ); // output
-    }
+    g_data.push_back( new TGraphErrors() );
+    hSiPM.push_back(  new TH1D(Form("hSiPM_%d",iRun), "",npt,0,tmax) ); // SiPM pulse
+    hLaser.push_back( new TH1D(Form("hLaser_%d",iRun),"",npt,0,tmax) ); // laser response
+    hLYSO.push_back(  new TH1D(Form("hLYSO_%d",iRun), "",npt,0,tmax) ); // LYSO response
+    hInTot.push_back( new TH1D(Form("hInTot_%d",iRun),"",npt,0,tmax) ); // input pulse
+    hBand.push_back(  new TH1D(Form("hBand_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
+    hBand2.push_back( new TH1D(Form("hBand2_%d",iRun),"",npt,0,tmax) ); // readout board bandwidth
+    hDisc.push_back(  new TH1D(Form("hDisc_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
+    hLowP.push_back(  new TH1D(Form("hLowP_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
+    hHigP.push_back(  new TH1D(Form("hHigP_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
+    hLowP2.push_back( new TH1D(Form("hLowP2_%d",iRun),"",npt,0,tmax) ); // readout board bandwidth
+    hHigP2.push_back( new TH1D(Form("hHigP2_%d",iRun),"",npt,0,tmax) ); // readout board bandwidth
+    hDelP.push_back(  new TH1D(Form("hDelP_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
+    hNorm.push_back(  new TH1D(Form("hNorm_%d",iRun), "",npt,0,tmax) ); // readout board bandwidth
+    hOuTot.push_back( new TH1D(Form("hOuTot_%d",iRun),"",npt,0,tmax) ); // output
+  }
   
   
   //-----------------------
@@ -700,6 +669,8 @@ int main(int argc, char** argv)
   // laser response
   double sigma = 0.021; // 21 ps sigma for our laser
   double mu = 5.; // arbitrary
+  double tau_r = 0.1;
+  double tau_d = 40.;
   for(unsigned int iRun = 0; iRun < nRuns; ++iRun)
   {
     SiPMParams* sipmPars = &(SiPMParamsVec.at(iRun));
@@ -709,8 +680,12 @@ int main(int argc, char** argv)
       double tt = (double)ipt * (tmax/npt);
       if( TMath::Gaus(tt,mu,sigma,true) > 1e-5) hLaser[iRun] -> SetBinContent(ipt+1, TMath::Gaus(tt,mu,sigma,true));
       else                                      hLaser[iRun] -> SetBinContent(ipt+1, 1e-15);
+      
+      hLYSO[iRun] -> SetBinContent(ipt+1, funcScint(tt,tau_r,tau_d)); 
+      //hLYSO[iRun] -> SetBinContent(ipt+1, funcLP(tt,tau_d));
     }
     hLaser[iRun] -> Scale((*sipmPars).Npe/hLaser[iRun]->Integral());
+    hLYSO[iRun] -> Scale((*sipmPars).Npe/hLYSO[iRun]->Integral());
   }
   
   
@@ -719,9 +694,12 @@ int main(int argc, char** argv)
   myLoadData(runsVec,dataFolder,baseName,psName); // fill graphs from files
   
   myFitPulse(bool(doMinimization),
-             nPars_amp, nPars_t0, nPars_Rq, nPars_Cd, nPars_BW, nPars_BW2);
+             nPars_amp, nPars_t0, nPars_Rq, nPars_Cd, nPars_BW, nPars_BW2, nPars_BW3);
   
   myDrawFit(plotFolder,commonLabel); // draw the fit result
   
+  TFile* outfile = TFile::Open("chisq.root","RECREATE");
+  g_chisq->Write("g_chisq");
+  outfile->Close();
   return 0;
 }
